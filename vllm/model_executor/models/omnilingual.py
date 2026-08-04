@@ -11,26 +11,25 @@ from .interfaces import SupportsMultiModal, SupportsPP
 
 
 # Audio inputs here
-class OmniFeatures(TensorSchema):
+class OmnilingualAudioInputs(TensorSchema):
     """
     Dimensions:
-        - na: Number of audios
-        - nmb: Number of mel bins
+        - na: Number of audio sequences
+        - ns: Number of waveform samples
     """
 
-    type: Literal["audio_features"]
-    input_features: Annotated[
+    type: Literal["audio_values"] = "audio_values"
+
+    input_values: Annotated[
         torch.Tensor | list[torch.Tensor],
-        TensorShape("na", "nmb", 3000),
+        TensorShape("na", "samples"),
     ]
 
-    feature_attention_mask: Annotated[
+    attention_mask: Annotated[
         torch.Tensor,
-        TensorShape("na", 3000),
+        TensorShape("na", "samples"),
     ]
-
-
-class OmniEmbeddings(TensorSchema):
+class OmnilingualEmbeddingInputs(TensorSchema):
     """
     Dimensions:
         - bn: Batch size
@@ -46,7 +45,7 @@ class OmniEmbeddings(TensorSchema):
         TensorShape("bn", "naf", "hs", dynamic_dims={"naf"}),
     ]
 
-OmniInputs: TypeAlias = OmniFeatures | OmniEmbeddings
+OmnilingualInputs : TypeAlias = OmnilingualAudioInputs | OmnilingualEmbeddingInputs 
 
 
 """Inference omnilingual model"""
@@ -65,21 +64,25 @@ class OmnilingualForConditionalGeneration(nn.Module, SupportsMultiModal, Support
         config = vllm_config.model_config.hf_config
         # TODO: Verify this...
 
-    def validate_audio_input(self, **kwargs: object) -> OmniInputs | None:
+    def _parse_and_validate_audio_input(self, **kwargs: object) -> OmnilingualInputs | None:
         audio_embeds = kwargs.pop("audio_embeds", None)
-        input_features = kwargs.pop("input_features", None)
+        input_values = kwargs.pop("input_values", None)
 
         if audio_embeds is not None:
-            return OmniEmbeddings(type="audio_embeds", audio_embeds=audio_embeds)
+            return OmnilingualEmbeddingInputs(type="audio_embeds", audio_embeds=audio_embeds)
 
-        feature_attention_mask = kwargs.pop("feature_attention_mask", None)
+        if input_values is not None:
+            attention_mask = kwargs.pop("attention_mask", None)
 
-        if input_features is not None:
-            return OmniFeatures(
-                type="audio_features",
-                input_features=input_features,
-                feature_attention_mask=feature_attention_mask,
+            return OmnilingualAudioInputs(
+                type="audio_values",
+                input_values=input_values,
+                attention_mask=attention_mask,
             )
 
-        elif audio_embeds is None and input_features is None:
-            return None
+        return None
+
+    # def _process_audio_input(self, audio_input: Qwen2AudioInputs) -> torch.Tensor | tuple[torch.Tensor, ...]:
+    #     if audio_input["type"] == "audio_embeds":
+    #         audio_embeds = audio_input["audio_embeds"]
+    #         return tuple(audio_embeds)
